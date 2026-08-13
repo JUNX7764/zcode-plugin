@@ -16,6 +16,11 @@ const expectedSkills = [
   "save-handoff",
   "status",
 ];
+const expectedCommands = [
+  "nowledge-mem-save-handoff.md",
+  "nowledge-mem-status.md",
+  "nowledge-mem-sync-now.md",
+];
 
 function fail(message) {
   console.error(`ZCode plugin validation failed: ${message}`);
@@ -43,6 +48,9 @@ function validateManifest(manifest) {
     throw new Error("manifest.name does not match the ZCode name format");
   }
   requireString(manifest.version, "manifest.version");
+  if (manifest.version !== "0.2.0") {
+    throw new Error("manifest.version must be 0.2.0");
+  }
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(manifest.version)) {
     throw new Error("manifest.version must be a semantic version");
   }
@@ -51,8 +59,17 @@ function validateManifest(manifest) {
     throw new Error("manifest.author must be an object");
   }
   requireString(manifest.author.name, "manifest.author.name");
-  if (manifest.hooks !== undefined || manifest.agents !== undefined) {
-    throw new Error("0.1.0 does not declare unverified hooks or agents");
+  if (manifest.commands !== "commands") {
+    throw new Error('manifest.commands must be "commands"');
+  }
+  if (manifest.skills !== "skills") {
+    throw new Error('manifest.skills must be "skills"');
+  }
+  if (manifest.hooks !== undefined) {
+    throw new Error("standard hooks/hooks.json is auto-discovered; do not also declare manifest.hooks");
+  }
+  if (manifest.agents !== undefined) {
+    throw new Error("this package does not declare custom agents");
   }
 }
 
@@ -132,13 +149,68 @@ function validateSkills() {
   }
 }
 
+function validateCommands() {
+  const commandsRoot = join(pluginRoot, "commands");
+  const actualCommands = readdirSync(commandsRoot).filter((name) =>
+    statSync(join(commandsRoot, name)).isFile(),
+  ).sort();
+  if (JSON.stringify(actualCommands) !== JSON.stringify([...expectedCommands].sort())) {
+    throw new Error(`commands must be exactly: ${expectedCommands.join(", ")}`);
+  }
+  for (const commandName of expectedCommands) {
+    const commandPath = join(commandsRoot, commandName);
+    const source = readFileSync(commandPath, "utf8");
+    if (!/^---\r?\n[\s\S]*?\r?\n---\r?\n/.test(source)) {
+      throw new Error(`${relative(pluginRoot, commandPath)} is missing YAML frontmatter`);
+    }
+  }
+}
+
+function validateHooks() {
+  const hooks = readJson(join(pluginRoot, "hooks", "hooks.json"), "hooks/hooks.json");
+  const seenEvents = new Set();
+  if (!hooks || typeof hooks !== "object" || !hooks.hooks || typeof hooks.hooks !== "object") {
+    throw new Error("hooks/hooks.json must contain hooks");
+  }
+  for (const [eventName, matchers] of Object.entries(hooks.hooks)) {
+    seenEvents.add(eventName);
+    if (!Array.isArray(matchers) || matchers.length !== 1) {
+      throw new Error(`${eventName} must declare exactly one matcher entry`);
+    }
+    const hooksForMatcher = matchers[0]?.hooks;
+    if (!Array.isArray(hooksForMatcher) || hooksForMatcher.length !== 1) {
+      throw new Error(`${eventName} must declare exactly one process hook`);
+    }
+    const hook = hooksForMatcher[0];
+    if (hook.type !== "process" || hook.command !== "node") {
+      throw new Error(`${eventName} hook must run as a node process`);
+    }
+    if (!Array.isArray(hook.args) || hook.args.length !== 1 || hook.args[0] !== "${ZCODE_PLUGIN_ROOT}/hooks/zcode-mem-hook.mjs") {
+      throw new Error(`${eventName} hook args must point at hooks/zcode-mem-hook.mjs`);
+    }
+  }
+  for (const eventName of ["SessionStart", "UserPromptSubmit", "Stop"]) {
+    if (!seenEvents.has(eventName)) {
+      throw new Error(`hooks/hooks.json must declare ${eventName}`);
+    }
+  }
+  const script = readFileSync(join(pluginRoot, "hooks", "zcode-mem-hook.mjs"), "utf8");
+  for (const required of ["SessionStart", "UserPromptSubmit", "Stop", "transcript_path", "--from", "zcode"]) {
+    if (!script.includes(required)) {
+      throw new Error(`zcode-mem-hook.mjs is missing ${required}`);
+    }
+  }
+}
+
 try {
   const manifest = readJson(manifestPath, ".zcode-plugin/plugin.json");
   validateManifest(manifest);
   validateMarketplace(readJson(marketplacePath, "marketplace.json"), manifest);
   validateMcp(readJson(mcpPath, ".mcp.json"));
   validateSkills();
-  for (const forbiddenPath of ["hooks", "agents"]) {
+  validateCommands();
+  validateHooks();
+  for (const forbiddenPath of ["agents"]) {
     try {
       statSync(join(pluginRoot, forbiddenPath));
       throw new Error(`unexpected ${forbiddenPath}/ directory`);

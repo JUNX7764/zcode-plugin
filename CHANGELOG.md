@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0] - 2026-08-13
+
+### Added
+
+- ZCode lifecycle hooks for `SessionStart`, `UserPromptSubmit`, and `Stop`.
+- Startup Context Bundle injection and conservative prompt-time memory recall through hook `additionalContext`.
+- Stop-hook transcript capture through `nmem t sync --from zcode --session-dir <transcript_path> --all-projects --apply`.
+- ZCode commands for status checks, manual hook transcript sync, and explicit handoff saves.
+- Static validation for commands and hooks.
+
+### Changed
+
+- The package is now a native `plugin + MCP + Skills + commands + hooks` connector.
+- Documentation now treats hook-based transcript capture as the primary path while still requiring users to verify that their ZCode build fires `Stop` hooks.
+
 ## [0.1.0] - 2026-08-08
 
 ### Added

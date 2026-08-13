@@ -1,0 +1,42 @@
+{
+  "description": "Nowledge Mem lifecycle hooks for ZCode.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/zcode-mem-hook.mjs"],
+            "timeoutMs": 10000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/zcode-mem-hook.mjs"],
+            "timeoutMs": 10000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/hooks/zcode-mem-hook.mjs"],
+            "timeoutMs": 20000
+          }
+        ]
+      }
+    ]
+  }
+}

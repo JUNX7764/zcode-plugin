@@ -1,7 +1,7 @@
 {
   "name": "nowledge-mem-zcode",
-  "version": "0.1.0",
-  "description": "Guided cross-tool memory for ZCode through Nowledge Mem MCP and Skills.",
+  "version": "0.2.0",
+  "description": "Native Nowledge Mem connector for ZCode with MCP, Skills, commands, and lifecycle hooks.",
   "author": {
     "name": "Nowledge Labs",
     "email": "hello@nowledge-labs.ai",
@@ -14,7 +14,11 @@
     "zcode",
     "memory",
     "mcp",
+    "hooks",
+    "commands",
     "skills",
     "nowledge"
-  ]
+  ],
+  "commands": "commands",
+  "skills": "skills"
 }

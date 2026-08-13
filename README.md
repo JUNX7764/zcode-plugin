@@ -1,14 +1,16 @@
 # Nowledge Mem for ZCode
 
-> A ZCode Plugin package that adds guided Nowledge Mem MCP tools and reusable Skills.
+> A ZCode Plugin package that adds Nowledge Mem MCP tools, reusable Skills, commands, and lifecycle hooks.
 
-## Automatic session-memory sync
+## Session-memory sync
 
-This release does **not** automatically sync ZCode conversations to Nowledge Mem. It does not capture the complete transcript at session end or before compaction. The current ZCode plugin contract does not expose a verified primary-session transcript export, `transcript_path`/`session_file` hook field, or a pre-compaction lifecycle contract that a plugin can use safely.
+Version 0.2.0 uses ZCode's hook contract:
 
-The plugin supports MCP tools, Working Memory and Context Bundle guidance, memory and thread search, durable distillation, status checks, and a structured handoff when you explicitly request one. A handoff is a summary and does not preserve the full conversation.
+- `SessionStart` reads the Nowledge Mem Context Bundle and injects it as additional context.
+- `UserPromptSubmit` performs bounded memory recall for prompts that clearly need prior decisions, history, or connector context.
+- `Stop` copies ZCode's temporary hook `transcript_path` JSONL and runs `nmem t sync --from zcode --session-dir <copied-transcript> --all-projects --apply`.
 
-If automatic session-memory sync is your requirement, this release cannot provide it. Follow the upstream feature request for a stable ZCode session export and lifecycle contract after it is published in the feedback repository.
+ZCode documents hook transcripts as temporary files that are available while the hook runs. The plugin copies them into plugin data before import. Verify one short ZCode session after install because some older ZCode builds had public reports of `Stop` hooks not firing. If `Stop` does not fire, use the `nowledge-mem-sync-now` command when a hook context exposes `transcript_path`, or save a handoff summary.
 
 ## What it provides
 
@@ -21,11 +23,17 @@ After the plugin is enabled, ZCode can use the Nowledge Mem MCP server and these
 - `status` — diagnose Nowledge Mem connectivity
 - `check-integration` — verify setup and explain the capability contract
 
-This is a guided `MCP + Skills` integration. MCP tools are available to the agent, while Skills teach when to use them. Version 0.1.0 does not claim automatic recall injection, automatic full-transcript capture, pre-compaction capture, or `save-thread`: ZCode's session/transcript lifecycle contract has not been verified for this connector.
+It also installs commands:
+
+- `nowledge-mem-status` — check the local CLI or MCP connection
+- `nowledge-mem-sync-now` — import the current hook transcript when `transcript_path` is available
+- `nowledge-mem-save-handoff` — save an explicit resumable summary
+
+This is a native `plugin + MCP + Skills + commands + hooks` integration. It does not claim pre-compaction capture, historical ZCode archive import, or lossless transcript import outside hook-provided transcripts.
 
 ## Manual installation
 
-The plugin package includes `.zcode-plugin/plugin.json` and a `marketplace.json` catalog for the standalone repository `https://github.com/nowledge-co/zcode-plugin`. ZCode has not published a default marketplace directory. For normal installation, use the standalone repository's marketplace source; the community checkout instructions below are only a development/review mirror.
+The plugin package includes `.zcode-plugin/plugin.json`, `.mcp.json`, `skills/`, `commands/`, `hooks/hooks.json`, and a `marketplace.json` catalog for the standalone repository `https://github.com/nowledge-co/zcode-plugin`.
 
 ### macOS/Linux
 
@@ -35,26 +43,26 @@ For normal installation, add the standalone repository's marketplace source in Z
 https://github.com/nowledge-co/zcode-plugin
 ```
 
-For local development or review of this community checkout, choose a stable checkout location and clone the community repository:
+For local development or review, choose a stable checkout location and clone the standalone plugin repository:
 
 ```bash
-COMMUNITY_DIR="$HOME/src/nowledge-community"
-git clone https://github.com/nowledge-co/community.git "$COMMUNITY_DIR"
+PLUGIN_DIR="$HOME/src/zcode-plugin"
+git clone https://github.com/nowledge-co/zcode-plugin.git "$PLUGIN_DIR"
 ```
 
 If you already cloned it, update it later with:
 
 ```bash
-git -C "$HOME/src/nowledge-community" pull --ff-only
+git -C "$HOME/src/zcode-plugin" pull --ff-only
 ```
 
 Create a persistent local marketplace directory under the user data directory. This is a project-recommended location, not a ZCode-defined default path:
 
 ```bash
-COMMUNITY_DIR="$HOME/src/nowledge-community"
+PLUGIN_DIR="$HOME/src/zcode-plugin"
 MARKETPLACE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nowledge/zcode-marketplace"
 mkdir -p "$MARKETPLACE_DIR"
-python3 - "$MARKETPLACE_DIR" "$COMMUNITY_DIR/nowledge-mem-zcode-plugin" <<'PY'
+python3 - "$MARKETPLACE_DIR" "$PLUGIN_DIR" <<'PY'
 import json
 import pathlib
 import sys
@@ -67,8 +75,8 @@ marketplace = {
     "description": "Local Nowledge Mem ZCode plugin source",
     "plugins": [{
         "name": "nowledge-mem-zcode",
-        "version": "0.1.0",
-        "description": "Guided cross-tool memory for ZCode through Nowledge Mem MCP and Skills.",
+        "version": "0.2.0",
+        "description": "Native cross-tool memory for ZCode through Nowledge Mem MCP, Skills, commands, and hooks.",
         "source": {"source": "directory", "path": str(plugin_dir)},
     }],
 }
@@ -87,33 +95,32 @@ Then open a ZCode workspace and:
 4. In the **Personal** section, install and enable `nowledge-mem-zcode`.
 5. Reload or restart the ZCode Agent runtime.
 
-The standalone repository's `marketplace.json` is the catalog used by the ZCode marketplace flow; `.zcode-plugin/plugin.json` remains the plugin manifest. The development-only generated catalog above is not a replacement for the standalone repository catalog.
+The standalone repository's `marketplace.json` is the catalog used by the normal ZCode marketplace flow; `.zcode-plugin/plugin.json` remains the plugin manifest. The development-only generated catalog above is only for testing local, unpublished changes.
 
 ### Windows PowerShell
 
-Clone or update the community repository:
+Clone or update the standalone plugin repository:
 
 ```powershell
-$CommunityDir = Join-Path $HOME "src\nowledge-community"
-git clone https://github.com/nowledge-co/community.git $CommunityDir
+$PluginDir = Join-Path $HOME "src\zcode-plugin"
+git clone https://github.com/nowledge-co/zcode-plugin.git $PluginDir
 # For an existing checkout instead:
-# git -C $CommunityDir pull --ff-only
+# git -C $PluginDir pull --ff-only
 ```
 
 Create the persistent user-owned marketplace directory and its catalog:
 
 ```powershell
-$CommunityDir = Join-Path $HOME "src\nowledge-community"
+$PluginDir = Join-Path $HOME "src\zcode-plugin"
 $MarketplaceDir = Join-Path $env:LOCALAPPDATA "Nowledge\ZCode\marketplace"
-$PluginDir = (Join-Path $CommunityDir "nowledge-mem-zcode-plugin")
 New-Item -ItemType Directory -Force -Path $MarketplaceDir | Out-Null
 @{
   name = "nowledge-community-zcode-local"
   description = "Local Nowledge Mem ZCode plugin source"
   plugins = @(@{
     name = "nowledge-mem-zcode"
-    version = "0.1.0"
-    description = "Guided cross-tool memory for ZCode through Nowledge Mem MCP and Skills."
+    version = "0.2.0"
+    description = "Native cross-tool memory for ZCode through Nowledge Mem MCP, Skills, commands, and hooks."
     source = @{
       source = "directory"
       path = (Resolve-Path $PluginDir).Path
@@ -127,12 +134,12 @@ In ZCode, use **Settings → Plugins → Create → Add marketplace**, choose `$
 
 ### Updating the plugin and adding future plugins
 
-Keep both the community checkout and the user-owned marketplace directory at stable, accessible paths. ZCode does not document whether local marketplace sources are copied, cached, watched, or referenced directly, nor does it document a default storage path. Do not delete or move the source if you want the documented refresh workflow to keep working.
+Keep both the plugin checkout and the user-owned marketplace directory at stable, accessible paths. ZCode does not document whether local marketplace sources are copied, cached, watched, or referenced directly, nor does it document a default storage path. Do not delete or move the source if you want the documented refresh workflow to keep working.
 
 To update this plugin:
 
 ```bash
-git -C "$HOME/src/nowledge-community" pull --ff-only
+git -C "$HOME/src/zcode-plugin" pull --ff-only
 ```
 
 Then open **Settings → Plugins → Marketplace sources** and choose **Refresh this marketplace**. Use **Manage installed → Check for updates** when ZCode offers that action, and reload the Agent runtime if components do not appear immediately.
@@ -165,19 +172,19 @@ Paste the generated MCP block into ZCode's own MCP settings and reload the Agent
 
 ## Capability contract
 
-| Capability | ZCode behavior in 0.1.0 |
+| Capability | ZCode behavior in 0.2.0 |
 |---|---|
-| Context Bundle / Working Memory | Guided by Skills and MCP |
-| Memory and thread search | Guided and proactive when relevant |
+| Context Bundle / Working Memory | Skill/MCP access plus `SessionStart` hook injection |
+| Memory and thread search | Skill/MCP access plus conservative `UserPromptSubmit` recall |
 | Distillation | Guided; search before update/add |
 | Status | CLI fallback plus MCP server tools |
-| Handoff | Explicit structured summary only |
-| Automatic recall injection | Not provided |
-| Automatic transcript capture | Not provided |
+| Commands | Status, sync-now, and handoff commands |
+| Handoff | Explicit structured summary fallback |
+| Hook transcript capture | `Stop` hook copies temporary `transcript_path` JSONL and imports it with `nmem t sync --from zcode` |
 | Pre-compaction capture | Not provided |
-| Full `save-thread` import | Not provided |
+| Historical archive import | Not provided without an explicit hook transcript path |
 
-A handoff is not a transcript. Do not describe `save-handoff` as lossless session capture.
+A handoff is not a transcript. Do not describe `save-handoff` as lossless session capture. Do not claim transcript import succeeded unless `nmem t sync --from zcode` succeeded.
 
 ## Customize without editing the plugin
 
@@ -185,7 +192,7 @@ Do not modify files under ZCode's installed plugin cache. Put project-specific m
 
 ## Permissions and security
 
-Enabling a third-party ZCode plugin grants it the permissions provided by its declared components. Review the manifest, `.mcp.json`, and Skills before enabling it. This package contains no executable hook or custom runtime process; its MCP server still has the access granted by the ZCode MCP client and the endpoint you configure.
+Enabling a third-party ZCode plugin grants it the permissions provided by its declared components. Review the manifest, `.mcp.json`, Skills, commands, and hooks before enabling it. This package runs a local Node hook script that invokes `nmem`; its MCP server still has the access granted by the ZCode MCP client and the endpoint you configure.
 
 ## Development
 
@@ -195,4 +202,4 @@ Validate the self-contained package without credentials or a running ZCode UI:
 node scripts/validate-plugin.mjs
 ```
 
-The repository also has a static integration contract test. There is currently no verified headless ZCode plugin harness, so a successful static test is not a claim of live UI verification.
+The repository also has a static integration contract test. There is currently no verified headless ZCode plugin harness, so a successful static test is not a claim that a given ZCode desktop build fired every hook. After install, run one short session and check that the imported thread appears in Nowledge Mem.

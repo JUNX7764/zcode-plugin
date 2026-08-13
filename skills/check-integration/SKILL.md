@@ -40,16 +40,17 @@ Install and enable `nowledge-mem-zcode`, then reload the Agent runtime. After a 
 This ZCode package provides:
 
 - **Working Memory and Context Bundle:** guided through Skills and MCP;
-- **Recall:** guided proactive searches across memories and threads;
+- **Startup context:** `SessionStart` hook injection when the local `nmem` CLI is reachable;
+- **Recall:** guided proactive searches across memories and threads, plus conservative `UserPromptSubmit` hook recall for prompts that clearly need history;
 - **Distillation:** guided durable saves using search-before-update/add;
 - **Status:** CLI/MCP diagnostics;
-- **Threads:** explicit structured handoff summaries only.
+- **Threads:** `Stop` hook transcript capture through `nmem t sync --from zcode`, plus explicit structured handoff summaries as fallback.
 
-It does **not** automatically synchronize ZCode conversations to Nowledge Mem. It also does not provide automatic recall injection, automatic full-transcript capture, pre-compaction capture, or a `save-thread` operation. The current package uses `plugin+mcp+skills`, `autoCapture: false`, and `handoff-only` because ZCode has not published a verified primary-session transcript and lifecycle contract for plugins.
+ZCode exposes hook transcripts as temporary JSONL files. This plugin copies the `transcript_path` during the `Stop` hook before asking `nmem` to import it. If a user's ZCode build does not fire `Stop`, use `nowledge-mem-sync-now` when a hook context exposes `transcript_path`, or save a handoff summary. Do not claim a transcript was imported unless `nmem t sync --from zcode` succeeded.
 
 ## Local installation
 
-For local testing, add the repository's ZCode marketplace or plugin directory from **Settings → Plugins → Create → Add marketplace**, install the ZCode package, enable it, and reload the Agent runtime. After package changes, refresh the marketplace source.
+For local testing, add the repository's ZCode marketplace or plugin directory from **Settings → Plugins → Create → Add marketplace**, install the ZCode package, enable it, and reload the Agent runtime. After package changes, refresh the marketplace source and use **Manage installed → Check for updates**.
 
 ## Remote Mem
 
