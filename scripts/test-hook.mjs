@@ -140,4 +140,60 @@ assert.match(mismatch.stderr, /cannot form a complete ZCode conversation/);
 assert.equal(readFileSync(captured, "utf8"), beforeMismatch);
 assert.equal(existsSync(join(pluginData, "pending-prompts", "mismatched-session.jsonl")), true);
 
+const cumulativeFirst = join(root, "cumulative-first.jsonl");
+writeFileSync(
+  cumulativeFirst,
+  `${JSON.stringify({ type: "assistant", sessionId: "turn-session", content: "turn one reply" })}\n`,
+);
+runHook({
+  hook_event_name: "UserPromptSubmit",
+  session_id: "turn-session",
+  cwd: "/workspace/project",
+  timestamp: "2026-09-03T00:00:03Z",
+  prompt: "turn one prompt",
+});
+runHook({
+  hook_event_name: "Stop",
+  session_id: "turn-session",
+  cwd: "/workspace/project",
+  transcript_path: cumulativeFirst,
+  last_assistant_message: "turn one reply",
+});
+assert.deepEqual(
+  events(captured).map((event) => [event.role || event.type, event.content]),
+  [
+    ["user", "turn one prompt"],
+    ["assistant", "turn one reply"],
+  ],
+);
+assert.equal(existsSync(join(pluginData, "pending-prompts", "turn-session.jsonl")), false);
+
+const cumulativeSecond = join(root, "cumulative-second.jsonl");
+writeFileSync(
+  cumulativeSecond,
+  `${JSON.stringify({ type: "assistant", sessionId: "turn-session", content: "turn one reply" })}\n${JSON.stringify({ type: "assistant", sessionId: "turn-session", content: "turn two reply" })}\n`,
+);
+runHook({
+  hook_event_name: "UserPromptSubmit",
+  session_id: "turn-session",
+  cwd: "/workspace/project",
+  timestamp: "2026-09-03T00:00:04Z",
+  prompt: "turn two prompt",
+});
+runHook({
+  hook_event_name: "Stop",
+  session_id: "turn-session",
+  cwd: "/workspace/project",
+  transcript_path: cumulativeSecond,
+  last_assistant_message: "turn two reply",
+});
+assert.deepEqual(
+  events(captured).map((event) => [event.role || event.type, event.content]),
+  [
+    ["user", "turn two prompt"],
+    ["assistant", "turn two reply"],
+  ],
+);
+assert.equal(existsSync(join(pluginData, "pending-prompts", "turn-session.jsonl")), false);
+
 console.log("ZCode hook transcript tests passed");

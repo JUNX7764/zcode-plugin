@@ -167,14 +167,15 @@ function completeTranscript(input, body, sessionId) {
   }
 
   const prompts = readPendingPrompts(sessionId);
-  if (prompts.length !== assistants.length || prompts.length === 0) {
+  if (prompts.length === 0 || assistants.length < prompts.length) {
     process.stderr.write(
       `[nowledge-mem-zcode] cannot form a complete ZCode conversation: captured ${prompts.length} user prompt(s) and ${assistants.length} assistant response(s)\n`,
     );
     return null;
   }
+  const unmatchedAssistants = assistants.slice(-prompts.length);
 
-  return prompts.flatMap((prompt, index) => [prompt, assistants[index]])
+  return prompts.flatMap((prompt, index) => [prompt, unmatchedAssistants[index]])
     .map((event) => JSON.stringify(event))
     .join("\n")
     .concat("\n");
