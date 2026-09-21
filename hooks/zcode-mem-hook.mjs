@@ -1,5 +1,12 @@
 #!/usr/bin/env node
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -44,6 +51,136 @@ function textOf(value) {
   return "";
 }
 
+function hookSessionId(input) {
+  return String(input.session_id || input.sessionId || "").trim();
+}
+
+function pluginDataDir() {
+  return process.env.ZCODE_PLUGIN_DATA
+    || process.env.CLAUDE_PLUGIN_DATA
+    || join(tmpdir(), "nowledge-mem-zcode");
+}
+
+function sessionFileName(sessionId) {
+  return `${sessionId.replace(/[^a-zA-Z0-9._-]/g, "_")}.jsonl`;
+}
+
+function pendingPromptPath(sessionId) {
+  const dir = join(pluginDataDir(), "pending-prompts");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return join(dir, sessionFileName(sessionId));
+}
+
+function hookTimestamp(input) {
+  const timestamp = input.timestamp || input.created_at || input.createdAt || input.time;
+  return typeof timestamp === "string" && timestamp.trim() ? timestamp : new Date().toISOString();
+}
+
+function recordPrompt(input) {
+  const prompt = String(input.prompt || "").trim();
+  const sessionId = hookSessionId(input);
+  if (!prompt || !sessionId) return;
+  appendFileSync(
+    pendingPromptPath(sessionId),
+    `${JSON.stringify({
+      role: "user",
+      session_id: sessionId,
+      cwd: input.cwd,
+      timestamp: hookTimestamp(input),
+      content: prompt,
+    })}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+}
+
+function readJsonEvents(body) {
+  const trimmed = body.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed.filter((event) => event && typeof event === "object");
+    for (const key of ["messages", "events"]) {
+      if (Array.isArray(parsed?.[key])) return parsed[key].filter((event) => event && typeof event === "object");
+    }
+  } catch {
+    // ZCode hook transcripts are normally JSONL.
+  }
+  return body.split("\n").flatMap((line) => {
+    try {
+      const event = JSON.parse(line);
+      return event && typeof event === "object" ? [event] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function eventRole(event) {
+  const value = event?.message?.role
+    || event?.role
+    || event?.messageType
+    || event?.metadata?.messageType
+    || event?.type;
+  if (typeof value !== "string") return "";
+  if (value.toLowerCase() === "human") return "user";
+  if (value.toLowerCase() === "ai") return "assistant";
+  return value.toLowerCase();
+}
+
+function readPendingPrompts(sessionId) {
+  try {
+    return readJsonEvents(readFileSync(pendingPromptPath(sessionId), "utf8"))
+      .filter((event) => eventRole(event) === "user");
+  } catch {
+    return [];
+  }
+}
+
+function clearPendingPrompts(sessionId) {
+  try {
+    unlinkSync(pendingPromptPath(sessionId));
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      process.stderr.write(`[nowledge-mem-zcode] cannot clear captured prompts: ${error.message}\n`);
+    }
+  }
+}
+
+function assistantEvent(sessionId, input, content) {
+  return {
+    role: "assistant",
+    session_id: sessionId,
+    cwd: input.cwd,
+    timestamp: hookTimestamp(input),
+    content,
+  };
+}
+
+function completeTranscript(input, body, sessionId) {
+  const events = readJsonEvents(body);
+  if (events.some((event) => eventRole(event) === "user")) return body;
+
+  const lastAssistant = textOf(input.last_assistant_message || input.lastAssistantMessage).trim();
+  const assistants = events.filter((event) => eventRole(event) === "assistant");
+  if (lastAssistant && !assistants.some((event) => textOf(event).includes(lastAssistant))) {
+    assistants.push(assistantEvent(sessionId, input, lastAssistant));
+  }
+
+  const prompts = readPendingPrompts(sessionId);
+  if (prompts.length === 0 || assistants.length < prompts.length) {
+    process.stderr.write(
+      `[nowledge-mem-zcode] cannot form a complete ZCode conversation: captured ${prompts.length} user prompt(s) and ${assistants.length} assistant response(s)\n`,
+    );
+    return null;
+  }
+  const unmatchedAssistants = assistants.slice(-prompts.length);
+
+  return prompts.flatMap((prompt, index) => [prompt, unmatchedAssistants[index]])
+    .map((event) => JSON.stringify(event))
+    .join("\n")
+    .concat("\n");
+}
+
 function writeAdditionalContext(eventName, additionalContext) {
   const trimmed = String(additionalContext || "").trim().slice(0, MAX_CONTEXT_CHARS);
   if (!trimmed) return;
@@ -77,6 +214,7 @@ function sessionStart(input) {
 }
 
 function promptRecall(input) {
+  recordPrompt(input);
   const prompt = String(input.prompt || "").trim();
   if (!prompt || !RECALL_PROMPT_RE.test(prompt)) return;
   const result = runNmem(["--json", "m", "search", prompt, "-n", "5"], { timeoutMs: 10000 });
@@ -110,21 +248,18 @@ function copiedTranscriptPath(input) {
     return null;
   }
 
-  const sessionId = String(input.session_id || input.sessionId || "zcode-session").trim();
-  const lastAssistant = textOf(input.last_assistant_message || input.lastAssistantMessage).trim();
-  if (lastAssistant && !body.includes(lastAssistant.slice(0, Math.min(lastAssistant.length, 120)))) {
-    body += `${body.endsWith("\n") || body.length === 0 ? "" : "\n"}${JSON.stringify({
-      role: "assistant",
-      session_id: sessionId,
-      cwd: input.cwd,
-      content: lastAssistant,
-    })}\n`;
+  const sessionId = hookSessionId(input);
+  if (!sessionId) {
+    process.stderr.write("[nowledge-mem-zcode] cannot capture a transcript without session_id\n");
+    return null;
   }
+  body = completeTranscript(input, body, sessionId);
+  if (body === null) return null;
 
   const base = process.env.ZCODE_PLUGIN_DATA || process.env.CLAUDE_PLUGIN_DATA || mkdtempSync(join(tmpdir(), "nmem-zcode-"));
   const dir = join(base, "transcripts");
   mkdirSync(dir, { recursive: true });
-  const out = join(dir, `${sessionId.replace(/[^a-zA-Z0-9._-]/g, "_")}.jsonl`);
+  const out = join(dir, sessionFileName(sessionId));
   writeFileSync(out, body, "utf8");
   return out;
 }
@@ -146,7 +281,9 @@ function stopCapture(input) {
   ];
   if (sessionId) args.push("--session-id", sessionId);
   const result = runNmem(args, { timeoutMs: 18000 });
-  if (result.status !== 0) {
+  if (result.status === 0) {
+    clearPendingPrompts(sessionId);
+  } else {
     process.stderr.write(`[nowledge-mem-zcode] thread sync failed: ${result.stderr || result.stdout}\n`);
   }
 }

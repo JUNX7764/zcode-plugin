@@ -4,13 +4,13 @@
 
 ## Session-memory sync
 
-Version 0.2.0 uses ZCode's hook contract:
+Version 0.2.1 uses ZCode's hook contract:
 
 - `SessionStart` reads the Nowledge Mem Context Bundle and injects it as additional context.
-- `UserPromptSubmit` performs bounded memory recall for prompts that clearly need prior decisions, history, or connector context.
-- `Stop` copies ZCode's temporary hook `transcript_path` JSONL and runs `nmem t sync --from zcode --session-dir <copied-transcript> --all-projects --apply`.
+- `UserPromptSubmit` records the submitted prompt for the current session, then performs bounded memory recall for prompts that clearly need prior decisions, history, or connector context.
+- `Stop` pairs those captured user prompts with ZCode's temporary hook `transcript_path` replies, then runs `nmem t sync --from zcode --session-dir <copied-transcript> --all-projects --apply`.
 
-ZCode documents hook transcripts as temporary files that are available while the hook runs. The plugin copies them into plugin data before import. Verify one short ZCode session after install because some older ZCode builds had public reports of `Stop` hooks not firing. If `Stop` does not fire, use the `nowledge-mem-sync-now` command when a hook context exposes `transcript_path`, or save a handoff summary.
+ZCode documents hook transcripts as temporary files that are available while the hook runs. The plugin copies them into plugin data before import. ZCode 0.16.5 compact transcripts contain assistant replies but not historical prompts, so only sessions started after upgrading to 0.2.1 can be reconstructed faithfully. Verify one short ZCode session after install because some older ZCode builds had public reports of `Stop` hooks not firing. If `Stop` does not fire, use the `nowledge-mem-sync-now` command when a hook context exposes `transcript_path`, or save a handoff summary.
 
 ## What it provides
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1] - 2026-09-03
+
+### Fixed
+
+- Capture each `UserPromptSubmit` prompt and pair it with ZCode's compact assistant-only Stop transcript before import. New sessions on ZCode 0.16.5 now retain ordered user and assistant turns without manufacturing historical prompts.
+- Keep incomplete compact transcripts out of `nmem t sync` with an explicit diagnostic instead of importing a misleading partial conversation.
+
 ## [0.2.0] - 2026-08-13
 
 ### Added
