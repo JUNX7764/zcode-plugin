@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Accumulate the per-session Stop transcript instead of overwriting it each turn. `nmem t sync` reconciles an existing thread positionally, so a transcript holding only the latest turn made every sync after the first report "unchanged" and silently dropped all later turns (#5). The hook now merges each turn into the growing transcript with suffix-aware dedup, so retried turns never duplicate.
+- Pair the newest pending prompts with the newest capturable replies instead of refusing to sync when earlier replies were already compacted away, which permanently stalled a session after any single failed sync (#5).
+
 ## [0.2.1] - 2026-09-03
 
 ### Fixed

@@ -130,15 +130,23 @@ runHook({
   session_id: "mismatched-session",
   prompt: "second prompt",
 });
-const beforeMismatch = readFileSync(captured, "utf8");
 const mismatch = runHook({
   hook_event_name: "Stop",
   session_id: "mismatched-session",
   transcript_path: mismatched,
 });
-assert.match(mismatch.stderr, /cannot form a complete ZCode conversation/);
-assert.equal(readFileSync(captured, "utf8"), beforeMismatch);
-assert.equal(existsSync(join(pluginData, "pending-prompts", "mismatched-session.jsonl")), true);
+// Issue #5: the newest prompt still pairs with the newest capturable reply;
+// older prompts whose replies were compacted away are dropped with a
+// diagnostic instead of stalling the session's sync forever.
+assert.match(mismatch.stderr, /pairing latest 1 prompt/);
+assert.deepEqual(
+  events(captured).map((event) => [event.role || event.type, event.content]),
+  [
+    ["user", "second prompt"],
+    ["assistant", "only reply"],
+  ],
+);
+assert.equal(existsSync(join(pluginData, "pending-prompts", "mismatched-session.jsonl")), false);
 
 const cumulativeFirst = join(root, "cumulative-first.jsonl");
 writeFileSync(
@@ -190,6 +198,39 @@ runHook({
 assert.deepEqual(
   events(captured).map((event) => [event.role || event.type, event.content]),
   [
+    // Issue #5: ZCode's Stop transcript only carries the latest turn, so the
+    // per-session transcript must accumulate for nmem's positional
+    // reconciliation to append the new messages.
+    ["user", "turn one prompt"],
+    ["assistant", "turn one reply"],
+    ["user", "turn two prompt"],
+    ["assistant", "turn two reply"],
+  ],
+);
+assert.equal(existsSync(join(pluginData, "pending-prompts", "turn-session.jsonl")), false);
+
+// A retried Stop (e.g. the first sync failed before nmem acknowledged it)
+// re-asserts the latest turn; the accumulated transcript keeps one copy of
+// each message instead of duplicating the retried pair.
+runHook({
+  hook_event_name: "UserPromptSubmit",
+  session_id: "turn-session",
+  cwd: "/workspace/project",
+  timestamp: "2026-09-03T00:00:04Z",
+  prompt: "turn two prompt",
+});
+runHook({
+  hook_event_name: "Stop",
+  session_id: "turn-session",
+  cwd: "/workspace/project",
+  transcript_path: cumulativeSecond,
+  last_assistant_message: "turn two reply",
+});
+assert.deepEqual(
+  events(captured).map((event) => [event.role || event.type, event.content]),
+  [
+    ["user", "turn one prompt"],
+    ["assistant", "turn one reply"],
     ["user", "turn two prompt"],
     ["assistant", "turn two reply"],
   ],
