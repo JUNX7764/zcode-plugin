@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 const MAX_CONTEXT_CHARS = 6000;
 const RECALL_PROMPT_RE =
@@ -84,6 +85,7 @@ function recordPrompt(input) {
     pendingPromptPath(sessionId),
     `${JSON.stringify({
       role: "user",
+      prompt_id: randomUUID(),
       session_id: sessionId,
       cwd: input.cwd,
       timestamp: hookTimestamp(input),
@@ -162,10 +164,16 @@ function assistantEvent(sessionId, input, content) {
 // "unchanged" and silently dropped the turn. Accumulate turns instead, with
 // suffix-aware merge: a Stop can re-assert turns already stored (a retry
 // after a failed sync re-pairs the same pending prompt), and reconstructed
-// timestamps may drift between firings, so stored tail identity is compared
-// by role and content only.
+// assistant timestamps may drift between firings. User prompt identity is
+// persisted at submission so a new turn with identical text still appends.
 function sameTranscriptEvents(a, b) {
-  return eventRole(a) === eventRole(b) && textOf(a) === textOf(b);
+  const role = eventRole(a);
+  if (role !== eventRole(b) || textOf(a) !== textOf(b)) return false;
+  if (role !== "user") return true;
+  if (a.prompt_id || b.prompt_id) return a.prompt_id === b.prompt_id;
+  // Pending prompts captured before prompt IDs were introduced already have
+  // stable timestamps. Complete native transcripts may omit both fields.
+  return a.timestamp === b.timestamp;
 }
 
 function appendTranscriptEvents(path, body) {
